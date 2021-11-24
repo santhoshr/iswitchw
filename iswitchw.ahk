@@ -6,6 +6,16 @@
 ;
 ;
 
+/* 
+class Options {
+
+  static defaults := {"compact":}
+
+  __New() {
+
+  }
+}
+ */
 ;----------------------------------------------------------------------
 ;
 ; User configuration
@@ -14,11 +24,11 @@
 ; Use small icons in the listview
 Global compact := true
 
-; A bit of a hack, but this 'hides' the scorlls bars, rather the listview is
+; A bit of a hack, but this 'hides' the scorlls bars, rather the listview is    
 ; sized out of bounds, you'll still be able to use the scroll wheel or arrows
 ; but when resizing the window you can't use the left edge of the window, just
 ; the top and bottom right.
-Global hideScrollBars := true
+Global hideScrollBars := false ;true
 
 ; Uses tcmatch.dll included with QuickSearch eXtended by Samuel Plentz
 ; https://www.ghisler.ch/board/viewtopic.php?t=22592
@@ -30,7 +40,7 @@ Global hideScrollBars := true
 ;   * - for srch    
 ;   < - for simularity
 ; recommended '*' for fast fuzzy searching; you can set one of the other search modes as default here instead if destired
-DefaultTCSearch := "*" 
+DefaultTCSearch := "" 
 
 ; Activate the window if it's the only match
 activateOnlyMatch := false
@@ -42,10 +52,12 @@ hideWhenFocusLost := true
 ; useful for things like  hiding improperly configured tool windows or screen
 ; capture software during demos.
 filters := []
+; "NVIDIA GeForce Overlay","HPSystemEventUtilityHost"
 
 ; Add folders containing files or shortcuts you'd like to show in the list.
 ; Enter new paths as an array
 ; todo: show file extensions/path in the list, etc.
+; shortcutFolders := []
 shortcutFolders := ["C:\Users\" A_UserName "\OneDrive\Desktop"
 ,"C:\Users\" A_UserName "\OneDrive\Documents"]
 
@@ -55,7 +67,7 @@ shortcutFolders := ["C:\Users\" A_UserName "\OneDrive\Desktop"
 refreshEveryKeystroke := false
 
 ;----------------------------------------------------------------------
-;
+;s
 ; Global variables
 ;
 ;     allwindows  - windows on desktop
@@ -66,195 +78,262 @@ refreshEveryKeystroke := false
 ;     compact     - true when compact listview is enabled (small icons)
 ;
 ;----------------------------------------------------------------------
+global vivaldiTabObj, chromeTabObj, switcher_id, hlv
 
 #SingleInstance force
-#NoTrayIcon
+#WinActivateForce
 #NoEnv
+#MaxHotkeysPerInterval, 9999
+; #NoTrayIcon
 SendMode Input
 SetWorkingDir %A_ScriptDir%
 SetBatchLines -1
-
-#Include lib\Accv2.ahk
-
-global switcher_id
+SaveTimer := Func("SaveTimer")
+OnExit("Quit")
 
 ; Load saved position from settings.ini
-IniRead, x, settings.ini, position, x
-IniRead, y, settings.ini, position, y
-IniRead, w, settings.ini, position, w
-IniRead, h, settings.ini, position, h
-If (!x || !y || !w || !h || x = "ERROR" || y = "ERROR" || w = "ERROR" || h = "ERROR")
-  x := y := w := h := 0 ; zero out of any values are invalid
+IniRead, gui_pos, settings.ini, position, gui_pos, 0
 
-OnMessage(0x201, "WM_LBUTTONDOWN") ; Allows clicking and dragging the window
-;These remove the borders, while allowing the window to be resizable
-;https://autohotkey.com/board/topic/23969-resizable-window-border/#entry155480
-OnMessage(0x84, "WM_NCHITTEST")
-OnMessage(0x83, "WM_NCCALCSIZE")
-OnMessage(0x86, "WM_NCACTIVATE")
+OnMessage(0x20, "WM_SETCURSOR")
+OnMessage(0x200, "WM_MOUSEMOVE")
+OnMessage(0x201, "WM_LBUTTONDOWN")
 
 fileList := []
 if IsObject(shortcutFolders) {
   for i, e in shortcutFolders
     Loop, Files, % e "\*"	
-      fileList.Push({"fileName":RegExReplace(A_LoopFileName,"\.\w{3}$"),"path":A_LoopFileFullPath})
+    fileList.Push({"fileName":RegExReplace(A_LoopFileName,"\.\w{3}$"),"path":A_LoopFileFullPath})
 }
 
-AutoTrim, off
+Menu, Context, Add, Options, MenuHandler
+Menu, Context, Add, Exit, MenuHandler
 
-Gui, +LastFound +AlwaysOnTop -Caption +ToolWindow +Resize -DPIScale +MinSize220x127 +Hwndswitcher_id
+; Gui, +Hwndgui_id -Caption -MaximizeBox -Resize -DpiScale +E0x02000000 +E0x00080000 
+Gui, +LastFound +AlwaysOnTop -Caption -Resize -DPIScale +Hwndswitcher_id
 Gui, Color, black, 191919
 WinSet, Transparent, 225
 Gui, Margin, 8, 10
 Gui, Font, s14 cEEE8D5, Segoe MDL2 Assets
-Gui, Add, Text,     xm+5 ym+3, % Chr(0xE721)
+Gui, Add, Text, xm+5 ym+3, % Chr(0xE721)
 Gui, Font, s10 cEEE8D5, Segoe UI
-Gui, Add, Edit,     w420 h25 x+10 ym gSearchChange vsearch -E0x200,
-Gui, Add, ListView, % (hideScrollbars ? "x0" : "x9") " y+8 w490 h500 -VScroll -HScroll -Hdr -Multi Count10 AltSubmit vlist gListViewClick +LV0x10000 -E0x200", index|title|proc|tab
-Gui, Show, % x ? "x" x " y" y " w" w " h" h : "" , Window Switcher
+Gui, Add, Edit, w420 h25 x+10 ym gSearchChange vsearch -E0x200,
+Gui, Add, ListView, % (hideScrollbars ? "x0" : "x9") " y+8 w490 h500 -VScroll -HScroll -Hdr -Multi Count10 AltSubmit vlist hwndhLV gListViewClick 0x2000 +LV0x10000 -E0x200", index|title|proc|tab
+Gui, Show, , Window Switcher
+WinWaitActive, ahk_id %switcher_id%, , 1
+if gui_pos
+  SetWindowPosition(switcher_id, StrSplit(gui_pos, A_Space)*)
 LV_ModifyCol(4,0)
+Resize()
 WinHide, ahk_id %switcher_id%
-
 
 ; Add hotkeys for number row and pad, to focus corresponding item number in the list 
 numkey := [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, "Numpad1", "Numpad2", "Numpad3", "Numpad4", "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9", "Numpad0"]
 for i, e in numkey {
-    num := StrReplace(e, "Numpad")
-    KeyFunc := Func("ActivateWindow").Bind(num = 0 ? 10 : num)
-    Hotkey, IfWinActive, % "ahk_id" switcher_id
+  num := StrReplace(e, "Numpad")
+  KeyFunc := Func("ActivateWindow").Bind(num = 0 ? 10 : num)
+  Hotkey, IfWinActive, % "ahk_id" switcher_id
     Hotkey, % "#" e, % KeyFunc
 }
 
 ; Define hotstrings for selecting rows, by typing the number with a space after
 Loop 300 {
-    KeyFunc := Func("ActivateWindow").Bind(A_Index)
-    Hotkey, IfWinActive, % "ahk_id" switcher_id
+  KeyFunc := Func("ActivateWindow").Bind(A_Index)
+  Hotkey, IfWinActive, % "ahk_id" switcher_id
     Hotstring(":X:" A_Index , KeyFunc)
 }
 
+chromeTabObj := Object(), vivaldiTabObj := Object()
+
+SetTimer, RefreshTimer, 3000
+Settimer, CheckIfVisible, 20
+
 Return
+
+#Include lib\Accv2.ahk
+
+GuiContextMenu() {
+  global
+  Menu, Context, Show
+}
+
+MenuHandler() {
+  Switch A_ThisMenuItem {
+    Case "Options"  : return
+    Case "Exit"     : ExitApp 
+  }
+}
+
+CheckIfVisible:
+  DetectHiddenWindows, Off
+  pauseRefresh := WinExist("ahk_id" switcher_id) != "0x0" ? 1 : 0
+return
 
 ;----------------------------------------------------------------------
 ;
 ; Win+space to activate.
 ;
-; #space::
+; #space::  
 CapsLock:: ; Use Shift+Capslock to toggle while in use by the hotkey
-If WinActive("ahk_class Windows.UI.Core.CoreWindow") ; clear the search/start menu if it's open, otherwise it keeps stealing focus
-  Send, {esc}
-search := lastSearch := ""
-allwindows := Object()
-GuiControl, , Edit1
-WinShow, ahk_id %switcher_id%
-WinActivate, ahk_id %switcher_id%
-WinGetPos, , , w, h, ahk_id %switcher_id%
-WinSet, Region , 0-0 w%w% h%h% R15-15, ahk_id %switcher_id%
-WinSet, AlwaysOnTop, On, ahk_id %switcher_id%
-ControlFocus, Edit1, ahk_id %switcher_id%
-If hideWhenFocusLost
-  SetTimer, HideTimer, 10
-Return
+  LV_Modify(LV_GetNext(),"-Select -Focus")
+  allwindowobj := GetAllWindows()
+  If WinActive("ahk_class Windows.UI.Core.CoreWindow") ; clear the search/start menu if it's open, otherwise it keeps stealing focus
+    Send, {esc}
+  search := lastSearch := ""
+  allwindows := Object()
+  GuiControl, , Edit1
+  FadeShow()
+  ; WinShow, ahk_id %switcher_id%
+  WinActivate, ahk_id %switcher_id%
+  WinGetPos, , , w, h, ahk_id %switcher_id%
+  WinSet, Region , 0-0 w%w% h%h% R15-15, ahk_id %switcher_id%
+  WinSet, AlwaysOnTop, On, ahk_id %switcher_id%
+  ControlFocus, Edit1, ahk_id %switcher_id%
+  If hideWhenFocusLost
+    SetTimer, HideTimer, 10
 
+Return
 
 tooltipOff:
   ToolTip
 Return
 
 #If WinActive("ahk_id" switcher_id)
-Enter::       ;Activate window
-Escape::      ;Close window
-^Backspace::  ;Clear text
+Enter::       ; Activate window
+Escape::      ; Close window
+^Backspace::  ; Clear text
 ^w::          ; ''
-^h::          ;Backspace
-Down::        ;Next row
+^h::          ; Backspace
+Down::        ; Next row
 Tab::         ; ''
 ^k::          ; ''
-Up::          ;Previous row
+Up::          ; Previous row
 +Tab::        ; ''
 ^j::          ; ''
-PgUp::        ;Jump up 4 rows
-PgDn::        ;Jump down 4 rows
-^Home::        ;Jump to top
-^End::         ;Jump to bottom
-!F4::         ;Quit
+PgUp::        ; Jump up 4 rows
+PgDn::        ; Jump down 4 rows
+^Home::       ; Jump to top
+^End::        ; Jump to bottom
+!F4::         ; Quit
 ~Delete::
 ~Backspace::
   SetKeyDelay, -1
   Switch A_ThisHotkey {
-    Case "Enter":       ActivateWindow()
-    Case "Escape":      WinHide, ahk_id %switcher_id%
-    Case "^Home":        LV_Modify(1, "Select Focus Vis")
-    Case "^End":         LV_Modify(LV_GetCount(), "Select Focus Vis")
-    Case "!F4":         Quit()
-    Case "^h":          ControlSend, Edit1, {Backspace}, ahk_id %switcher_id%
-    Case "~Delete", "~Backspace", "^Backspace", "^w":
-      If (SubStr(search, 1, 1) != "?"
-      && DefaultTCSearch != "?"
-      && ((windows.MaxIndex() < 1 && LV_GetCount() > 1) || LV_GetCount() = 1))
-        GuiControl, , Edit1,
-      Else If (A_ThisHotkey = "^Backspace" || A_ThisHotkey = "^w")
-        ControlSend, Edit1, ^+{left}{Backspace}, ahk_id %switcher_id%
-    Case "Tab", "+Tab", "Up", "Down", "PgUp", "PgDn", "^k", "^j":
-      page := InStr(A_ThisHotkey,"Pg")
-      row := LV_GetNext()
-      jump := page ? 4 : 1
-      If (row = 0)
-        row := 1
-      row := GetKeyState("Shift") || InStr(A_ThisHotkey,"Up") || InStr(A_ThisHotkey,"^k") ? row - jump : row + jump
-      If (row > LV_GetCount())
-        row := page ? LV_GetCount() : 1
-      Else If (row < 1)
-        row := page ? 1 : LV_GetCount()
-      LV_Modify(row, "Select Focus Vis")
+    Case "Enter": ActivateWindow()
+    Case "Escape": FadeHide() ;WinHide, ahk_id %switcher_id%
+    Case "^Home": LV_ScrollTop()
+    Case "^End": LV_ScrollBottom()
+    Case "!F4": ExitApp 
+    Case "^h": ControlSend, Edit1, {Backspace}, ahk_id %switcher_id%
+  Case "~Delete", "~Backspace", "^Backspace", "^w":
+    If (SubStr(search, 1, 1) != "?"
+        && DefaultTCSearch != "?"
+    && ((windows.MaxIndex() < 1 && LV_GetCount() > 1) || LV_GetCount() = 1))
+    GuiControl, , Edit1,
+    Else If (A_ThisHotkey = "^Backspace" || A_ThisHotkey = "^w")
+      ControlSend, Edit1, ^+{left}{Backspace}, ahk_id %switcher_id%
+  Case "Tab", "+Tab", "Up", "Down", "PgUp", "PgDn", "^k", "^j":
+    page := InStr(A_ThisHotkey,"Pg")
+    row := LV_GetNext()
+    jump := page ? 4 : 1
+    If (row = 0)
+      row := 1
+    row := GetKeyState("Shift") || InStr(A_ThisHotkey,"Up") || InStr(A_ThisHotkey,"^k") ? row - jump : row + jump
+    If (row > LV_GetCount())
+      row := page ? LV_GetCount() : 1
+    Else If (row < 1)
+      row := page ? 1 : LV_GetCount()
+    LV_Modify(row, "Select Focus Vis")
+    if (row > LV_VisibleRows().2) {
+      LV_ScrollBottom(row)
+    } else if (row <= LV_VisibleRows().1) {
+      LV_ScrollTop(row)
+    }
   }
-Return
+  Return
 
-; Resizes the search field and list to the GUI width
-GuiSize:
-  GuiControl, Move, list, % "w" (hideScrollBars ? A_GuiWidth + 20 : A_GuiWidth - 20) " h" A_GuiHeight - 50
-  GuiControl, Move, search, % "w" A_GuiWidth - 52
-  LV_ModifyCol(3
-  , A_GuiWidth - ( hideScrollBars
-  ? (compact ? 170 : 190)   ; Resizes column 3 to match gui width
-  : (compact ? 200 : 220)))
-  WinGetPos, x, y, w, h, % "ahk_id" switcher_id
-  WinSet, Region , 0-0 w%w% h%h% R15-15, % "ahk_id" switcher_id  ;Sets window region to round off corners
-  SetTimer, SaveTimer, -2000
-Return
+#If WinActive("ahk_id" switcher_id)
+WheelDown::
+LV_ScrollDown() {
+  if (LV_VisibleRows().2 < LV_GetCount())
+    sendmessage, 0x115, 1, 0,, ahk_id %hlv%
+}
+return
 
-SaveTimer:
+WheelUp::
+LV_ScrollUp() {
+  if (LV_VisibleRows().1 > 0)
+    sendmessage, 0x115, 0, 0,, ahk_id %hlv%
+}
+return  
+#if
+
+LV_ScrollBottom(row := "") {
+  totalRows := LV_GetCount()
+  if !row
+    row := totalRows
+  loop {
+    lastVisibleRow := LV_VisibleRows().2
+    if (lastVisibleRow >= row || A_Index > totalRows)
+      break
+    sendmessage, 0x115, 1, 0,, ahk_id %hlv%
+  } ;Until (lastVisibleRow >= row || lastVisibleRow >= totalRows)
+  LV_Modify(row, "Select Focus")
+}
+
+LV_ScrollTop(row := "") {
+  totalRows := LV_GetCount()
+  if !row
+    row := 1
+  loop {
+    firstVisibleRow := LV_VisibleRows().1
+    if (firstVisibleRow <= row - 1 || A_Index > totalRows)
+      break
+    sendmessage, 0x115, 0, 0,, ahk_id %hlv%
+  } ;Until (firstVisibleRow <= row - 1 || firstVisibleRow <= 0)
+  LV_Modify(row, "Select Focus")
+}
+
+LV_VisibleRows() {
+  global hlv
+  static LVM_GETTOPINDEX = 4135		; gets the first visible row
+  , LVM_GETCOUNTPERPAGE = 4136	; gets number of visible rows
+    SendMessage, LVM_GETCOUNTPERPAGE, 0, 0, , ahk_id %hLV%
+    LV_NumOfRows := ErrorLevel	; get number of visible rows
+    SendMessage, LVM_GETTOPINDEX, 0, 0, , ahk_id %hLV%
+    LV_topIndex := ErrorLevel	; get first visible row
+  return [LV_topIndex, LV_topIndex + LV_NumOfRows, LV_NumOfRows] ; [Top row, last row, total visible]
+}
+
+SaveTimer() {
+  global switcher_id, gui_pos
+  CoordMode, Pixel, Screen
   WinGetPos, x, y, w, h, % "ahk_id" switcher_id
-  IniWrite, % x, settings.ini, position, x
-  IniWrite, % y, settings.ini, position, y
-  IniWrite, % w - 14, settings.ini, position, w ; manual adjustment of saved w/h. Gui, Show always 
-  IniWrite, % h - 14, settings.ini, position, h ; makes it 14px larger when specifying coords.
-Return
+  IniWrite, % Format("{} {} {} {}",x,y,w,h) , settings.ini, position, gui_pos
+}
 
 ; Hides the UI if it loses focus
 HideTimer:
   If !WinActive("ahk_id" switcher_id) {
-    WinHide, ahk_id %switcher_id%
+    FadeHide()
     SetTimer, HideTimer, Off
   }
 Return
 
 Quit() {
-  global switcher_id
-  Gosub, SaveTimer
-  ExitApp 
+  WinShow, ahk_id %switcher_id%
+  SaveTimer()
 }
-
 
 ;----------------------------------------------------------------------
 ;
 ; Runs whenever Edit control is updated
-SearchChange:
+SearchChange() {
+  global
   Gui, Submit, NoHide
-  if ((search ~= "^\d+")
-  || (StrLen(search) = 1 && SubStr(search, 1, 1) ~= "[?*<]"))
-    return  
+  if ((search ~= "^\d+") || (StrLen(search) = 1 && SubStr(search, 1, 1) ~= "[?*<]"))
+    return 
   Settimer, Refresh, -1
-Return
+}
 
 Refresh:
   if (LV_GetCount() = 1) {
@@ -271,16 +350,16 @@ Refresh:
     Gui, Font, c90ee90fj
     GuiControl, Font, Edit1
   }
-  For i, e in windows {
-    str .= Format("{:-4} {:-15} {:-55}`n",A_Index ":",SubStr(e.procName,1,14),StrLen(e.title) > 50 ? SubStr(e.title,1,50) "..." : e.title)
-  }
-  if search
-  OutputDebug, % "lvcount: " LV_GetCount() " - windows: " windows.MaxIndex()
-  . "`n------------------------------------------------------------------------------------------------" 
-  . Format("`nNew filter: {} | Result count: {:-4} | Time: {:-4} | Search string: {} ",toggleMethod ? "On " : "Off",LV_GetCount(),ElapsedTime,search)
-  . "`n------------------------------------------------------------------------------------------------`n" . str
-  str := ""
-  return
+  ; For i, e in windows {
+  ;   str .= Format("{:-4} {:-15} {:-55}`n",A_Index ":",SubStr(e.procName,1,14),StrLen(e.title) > 50 ? SubStr(e.title,1,50) "..." : e.title)
+  ; }
+  ; if search
+  ; OutputDebug, % "lvcount: " LV_GetCount() " - windows: " windows.MaxIndex()
+  ; . "`n------------------------------------------------------------------------------------------------" 
+  ; . Format("`nNew filter: {} | Result count: {:-4} | Time: {:-4} | Search string: {} ",toggleMethod ? "On " : "Off",LV_GetCount(),ElapsedTime,search)
+  ; . "`n------------------------------------------------------------------------------------------------`n" . str
+  ; str := ""
+return
 
 ;----------------------------------------------------------------------
 ;
@@ -292,69 +371,61 @@ ListViewClick:
   }
 return
 
-;----------------------------------------------------------------------
-;
-; Unoptimized array search, returns index of first occurrence or -1
-;
-IncludedIn(haystack,needle)
-{
-  Loop % haystack.MaxIndex()
-  {
-    item := haystack[a_index]
-    StringTrimRight, item, item, 0
-    if item =
-      continue
-
-    IfInString, needle, %item%
-      return %a_index%
+IncludedIn(needle,haystack) {
+  for i, e in needle {
+    if InStr(haystack,e)
+      return i
   }
-
   return -1
-} 
+}
 
+GetAllWindows() {
+  allWindowObj := []
+  top := DllCall("GetTopWindow", "Ptr","")
+  Loop {
+    next :=	DllCall("GetWindow", "Ptr", (A_Index = 1 ? top : next),"uint",2)
+    allWindowObj.Push(next)
+  } Until (!next)
+  return allWindowObj
+}
 ;----------------------------------------------------------------------
 ;
 ; Fetch info on all active windows
 ;
-GetAllWindows() {
-  global switcher_id, filters
+ParseAllWindows() {
+  global switcher_id, filters, allwindowObj, vivaldiTabObj, chromeTabObj
   windows := Object()
   top := DllCall("GetTopWindow", "Ptr","")
   Loop {
-  	next :=	DllCall("GetWindow", "Ptr", (A_Index = 1 ? top : next),"uint",2)
-  	WinGetTitle, title, % "ahk_id" next
+    next :=	DllCall("GetWindow", "Ptr", (A_Index = 1 ? top : next),"uint",2)
+    ; for _, next in allwindowObj {
+    WinGetTitle, title, % "ahk_id" next
     if IncludedIn(filters, title) > -1
       continue
-  	if title {
+    if title {
       procName := GetProcessName(next)
       if (procName = "chrome") {
-        tabs := StrSplit(JEE_ChromeGetTabNames(next),"`n")
-        for i, e in tabs {
+        for i, e in chromeTabObj[next] {
           if (!e || e ~= "i)group.*and \d+ other tabs") ; remove blank titles that appears when there are grouped tabs
             continue
           if RegExMatch(e, "i)(.*) - Part of.*group\s?(.*)", match) ; appends group name to grouped tabs
             e := (match2 ? match2 : "Group") . " " . Chr(0x2022) . " " . match1
-          windows.Push({"id":next, "title": e, "procName": "Chrome tab", "num": i})
+          windows.Push({"id":next, "title": e, "procName": "Chrome tab", "num": i,"hwnd":next})
         }
       } else if (procName = "firefox") {
         tabs := StrSplit(JEE_FirefoxGetTabNames(next),"`n")
         for i, e in tabs
           windows.Push({"id":next, "title": e, "procName": "Firefox tab", "num": i})
-    ;   } else if (procName = "vivaldi") {
-    ;     tabs := StrSplit(VivaldiGetTabNames(next),"`n")
-    ;     for i, e in tabs {
-    ;       tab := StrSplit(e, "¥")
-    ;       if !tab.1
-    ;         continue
-    ;       windows.Push({"id":next, "title": tab.1, "procName": "Vivaldi tab", "num": tab.2, "row": tab.3, "num2": tab.4})
-    ;     }
+      } else if (procName = "vivaldi") {
+        for i, e in vivaldiTabObj[next]
+          windows.Push({"id":next, "title": e.title, "procName": "Vivaldi tab", "accpath":e.accpath,"hwnd":next})
       } Else {
         windows.Push({ "id": next, "title": title, "procName": procName })
       }
-  	}
+    }
   } Until (!next)
 
-  return windows
+return windows
 }
 
 RefreshWindowList() {
@@ -362,8 +433,8 @@ RefreshWindowList() {
   global search, lastSearch, refreshEveryKeystroke
   windows := []
   toRemove := ""
-  If (DefaultTCSearch = "?" || SubStr(search, 1, 1) = "?" ||  !search || refreshEveryKeystroke || StrLen(search) < StrLen(lastSearch)) {
-    allwindows := GetAllWindows()
+  If (DefaultTCSearch = "?" || SubStr(search, 1, 1) = "?" || !search || refreshEveryKeystroke || StrLen(search) < StrLen(lastSearch)) {
+    allwindows := ParseAllWindows()
     for _, e in fileList {
       path := e.path 
       SplitPath, path, OutFileName, OutDir, OutExt, OutNameNoExt, OutDrive
@@ -380,7 +451,7 @@ RefreshWindowList() {
       toRemove .= i ","
     }
   }
-  OutputDebug, % "Allwindows count: " allwindows.MaxIndex() " | windows count: " windows.MaxIndex() "`n"
+  ; OutputDebug, % "Allwindows count: " allwindows.MaxIndex() " | windows count: " windows.MaxIndex() "`n"
   DrawListView(windows)
   for i, e in StrSplit(toRemove,",")
     allwindows.Delete(e)
@@ -389,18 +460,15 @@ RefreshWindowList() {
 ActivateWindow(rowNum := "") {
 
   global windows, ChromeInst
-
-  If !rowNum  
-    rowNum:= LV_GetNext(0)
+  If !rowNum 
+    rowNum:= LV_GetNext("F")
   If (rowNum > LV_GetCount())
     return
+  LV_GetText(procName, rowNum, 2)
   LV_GetText(title, rowNum, 3)
-  LV_GetText(tab, rowNum, 4)
+  LV_GetText(wid, rowNum, 4)
   Gui Submit
   window := windows[rowNum]
-  wid := window.id
-  procName := window.procName
-  url := window.url
   num := window.num
   path := window.path
   If window.HasKey("path") {
@@ -410,63 +478,61 @@ ActivateWindow(rowNum := "") {
       JEE_ChromeFocusTabByNum(wid,num)
     Else If (procName = "Firefox tab")
       JEE_FirefoxFocusTabByNum(wid,num)
-    ; Else If (procName = "Vivaldi tab")
-    ;   VivaldiFocusTabByNum(wid,num,window.row,window.num2)
-    IfWinActive, ahk_id %wid%
-    {
+    Else If (procName = "Vivaldi tab")
+      VivaldiFocusTab(wid,title,window.accPath)
+    If WinActive("ahk_id" wid) {
       WinGet, state, MinMax, ahk_id %wid%
-      if (state = -1)
-      {
+      if (state = -1) {
         WinRestore, ahk_id %wid%
       }
     } else {
       WinActivate, ahk_id %wid%
     }
   }
-  LV_Delete()
 }
 
-;----------------------------------------------------------------------
+;------------------------------------------------------------5----------
 ;
 ; Add window list to listview
 ;
-DrawListView(windows) {
-  Global switcher_id, fileList
+DrawListView(windows, startFrom := 0) {
+  Global switcher_id, fileList, hlv
   static IconArray
+  , WS_EX_TOOLWINDOW = 0x80
+  , WS_EX_APPWINDOW = 0x40000
+  , GW_OWNER = 4
+  , WM_GETICON := 0x7F
+  ; http://msdn.microsoft.com/en-us/library/windows/desktop/ms632625(v=vs.85).aspx
+  , ICON_BIG := 1
+  , ICON_SMALL2 := 2
+  , ICON_SMALL := 0
+  if !WinExist("ahk_id" switcher_id)
+    return
+  imageListID := IL_Create(windowCount, 1, compact ? 0 : 1)
   If !IsObject(IconArray)
     IconArray := {}
   windowCount := windows.MaxIndex()
   If !windowCount
     return
-  imageListID := IL_Create(windowCount, 1, compact ? 0 : 1)
-
-  ; Attach the ImageLists to the ListView so that it can later display the icons:
-  LV_SetImageList(imageListID, 1)
-  LV_Delete()
   iconCount = 0
   removedRows := Array()
-  GuiControl, -Redraw, list
-  For idx, window in windows {
+  allRows := []
 
+  LV_SetImageList(imageListID, 1)
+  LV_GetText(selectedRow, LV_GetNext(),3)
+  GuiControl, -Redraw, list
+  LV_Delete()
+  For idx, window in windows {
+    
     wid := window.id
     title := window.title
     procName := window.procName
     tab := window.num
 
-    ; Retrieves an 8-digit hexadecimal number representing extended style of a window.
     WinGet, style, ExStyle, ahk_id %wid%
-    ; http://msdn.microsoft.com/en-us/library/windows/desktop/ff700543(v=vs.85).aspx
-    ; Forces a top-level window onto the taskbar when the window is visible.
-    WS_EX_APPWINDOW = 0x40000
-    ; A tool window does not appear in the taskbar or in the dialog that appears when the user presses ALT+TAB.
-    WS_EX_TOOLWINDOW = 0x80
-
     isAppWindow := (style & WS_EX_APPWINDOW)
     isToolWindow := (style & WS_EX_TOOLWINDOW)
 
-    ; http://msdn.microsoft.com/en-us/library/windows/desktop/ms632599(v=vs.85).aspx#owned_windows
-    ; An application can use the GetWindow function with the GW_OWNER flag to retrieve a handle to a window's owner.
-    GW_OWNER = 4
     ownerHwnd := DllCall("GetWindow", "uint", wid, "uint", GW_OWNER)
     iconNumber := ""
     if window.HasKey("path") {
@@ -474,7 +540,7 @@ DrawListView(windows) {
       ; Calculate buffer size required for SHFILEINFO structure.
       sfi_size := A_PtrSize + 8 + (A_IsUnicode ? 680 : 340)
       VarSetCapacity(sfi, sfi_size)
-      SplitPath, FileName,,, FileExt  ; Get the file's extension.
+      SplitPath, FileName,,, FileExt ; Get the file's extension.
       for i, e in fileList {
         if (e.path = window.path) {
           fileObj := fileList[i]
@@ -485,7 +551,7 @@ DrawListView(windows) {
       If !iconHandle {
         if !DllCall("Shell32\SHGetFileInfo" . (A_IsUnicode ? "W":"A"), "Str", FileName
         , "UInt", 0, "Ptr", &sfi, "UInt", sfi_size, "UInt", 0x101) { ; 0x101 is SHGFI_ICON+SHGFI_SMALLICON
-          IconNumber := 9999999  ; Set it out of bounds to display a blank icon.
+          IconNumber := 9999999 ; Set it out of bounds to display a blank icon.
         } else {
           iconHandle := NumGet(sfi, 0)
           fileObj.icon := iconHandle
@@ -493,22 +559,16 @@ DrawListView(windows) {
       }
       if (iconHandle <> 0)
         iconNumber := DllCall("ImageList_ReplaceIcon", UInt, imageListID, Int, -1, UInt, iconHandle) + 1
-    } else if (procName ~= "(Chrome|Firefox) tab" || isAppWindow || ( !ownerHwnd and !isToolWindow )) {
-    ; } else if (procName ~= "(Chrome|Firefox|Vivaldi) tab" || isAppWindow || ( !ownerHwnd and !isToolWindow )) {
+    } else if (procName ~= "(Chrome|Firefox|Vivaldi) tab" || isAppWindow || ( !ownerHwnd and !isToolWindow )) {
       if !(iconHandle := window.icon) {
         if (procName = "Chrome tab") ; Apply the Chrome icon to found Chrome tabs
           wid := WinExist("ahk_exe chrome.exe")
         else if (procName = "Firefox tab")
           wid := WinExist("ahk_exe firefox.exe")
-        ; else if (procName = "Vivaldi tab")
-        ;   wid := WinExist("ahk_exe vivaldi.exe")
+        else if (procName = "Vivaldi tab")
+          wid := WinExist("ahk_exe vivaldi.exe")
         ; http://www.autohotkey.com/docs/misc/SendMessageList.htm
-        WM_GETICON := 0x7F
 
-        ; http://msdn.microsoft.com/en-us/library/windows/desktop/ms632625(v=vs.85).aspx
-        ICON_BIG := 1
-        ICON_SMALL2 := 2
-        ICON_SMALL := 0
         SendMessage, WM_GETICON, ICON_BIG, 0, , ahk_id %wid%
         iconHandle := ErrorLevel
         if (iconHandle = 0) {
@@ -545,511 +605,687 @@ DrawListView(windows) {
         iconNumber := IL_Add(imageListID, "C:\WINDOWS\system32\shell32.dll", 217) ; generic control panel icon
     }
     if (iconNumber < 1) {
-      removedRows.Insert(idx)
+      removedRows.Push(idx)
     } else {
       iconCount+=1
-      LV_Add("Icon" . iconNumber, iconCount, window.procName, title, tab)
+      allRows.Push(["Icon" . iconNumber, iconCount, window.procName, title, wid])
+      ; LV_Add("Icon" . iconNumber, iconCount, window.procName, title, tab)
     }
   }
   GuiControl, +Redraw, list
-
+  for i, e in allRows { 
+    if (i < startFrom)
+      continue
+      LV_Add(e*)
+  }
+  loop % LV_GetCount() {
+    LV_GetText(r,A_Index,3)
+    if (r = selectedRow) {
+      LV_Modify(A_Index,"Select Focus Vis")
+      break
+    }
+  }
   ; Don't draw rows without icons.
   windowCount-=removedRows.MaxIndex()
   For key,rowNum in removedRows {
-    windows.RemoveAt(rowNum)
+    allRows.RemoveAt(rowNum)
   }
 
   LV_Modify(1, "Select Focus")
 
   LV_ModifyCol(1,compact ? 50 : 70)
   LV_ModifyCol(2,110)
+  GuiControl, +Redraw, list
   If (windows.Count() = 1 && activateOnlyMatch)
     ActivateWindow(1)
 }
 
-;----------------------------------------------------------------------
-;
-; Get process name for given window id
-;
-GetProcessName(wid)
-{
-  WinGet, name, ProcessName, ahk_id %wid%
-  StringGetPos, pos, name, .
-  if ErrorLevel <> 1
-  {
-    StringLeft, name, name, %pos%
+RefreshTimer:
+  if (pauseRefresh = 0 
+      || (WinExist("ahk_exe vivaldi.exe") && vivaldiTabObj.count() = 0) 
+  || (WinExist("ahk_exe chrome.exe") && chromeTabObj.count() = 0)) {
+    for _, next in allwindowobj {
+      procName := GetProcessName(next)
+      if ( procname = "vivaldi" && (!IsObject(vivaldiTabObj[next]) || WinActive("ahk_id" next))) {
+        vivaldiTabObj[next] := VivaldiGetTabNames(next,1)
+      }
+      if (procname = "chrome" && (!IsObject(chromeTabObj[next]) || WinActive("ahk_id" next))) {
+        chromeTabObj[next] := StrSplit(JEE_ChromeGetTabNames(next),"`n")
+      }
+    }
+    RefreshWindowList()
   }
+return
 
-  return name
-}
-
-; Allows dragging the window position
-WM_LBUTTONDOWN() {
-    If A_Gui
-        PostMessage, 0xA1, 2 ; 0xA1 = WM_NCLBUTTONDOWN 
-}
-
-; Sizes the client area to fill the entire window.
-WM_NCCALCSIZE()
-{
-  If A_Gui
-    return 0
-}
-
-; Prevents a border from being drawn when the window is activated.
-WM_NCACTIVATE()
-{
-  If A_Gui
-    return 1
-}
-
-; Redefine where the sizing borders are.  This is necessary since
-; returning 0 for WM_NCCALCSIZE effectively gives borders zero size.
-WM_NCHITTEST(wParam, lParam)
-{
-    static border_size = 6
-
-    if !A_Gui
-        return
-
-    WinGetPos, gX, gY, gW, gH
-    x := lParam<<48>>48, y := lParam<<32>>48
-
-    hit_left := x < gX+border_size
-    hit_right := x >= gX+gW-border_size
-    hit_top := y < gY+border_size
-    hit_bottom := y >= gY+gH-border_size
-
-    if hit_top
-    {
-        if hit_left
-            return 0xD
-        else if hit_right
-            return 0xE
-        else
-            return 0xC
+VivaldiGetTabNames(hwnd, reset) {
+  returnObj := []
+  if (hWnd = "")
+    hWnd := WinExist("ahk_exe vivaldi.exe")
+  path := AccMatchTextAll(hwnd,{"roletext":"push button","name":"Menu"},"path",0,reset,20,obj)
+  path := RegExReplace(path, ".{3}$", "2.1.1.1")
+  for i, e in obj {
+    if (InStr(e.path, path) && e.name != "" && e.role = 20) {
+      ; for _, e2 in returnObj {
+      ;   ; if (e2.name = e.name)
+      ;     ; continue 2
+      ; }
+      returnObj.push({"title":e.name,"accpath":e.path})
     }
-    else if hit_bottom
-    {
-        if hit_left
-            return 0x10
-        else if hit_right
-            return 0x11
-        else
-            return 0xF
-    }
-    else if hit_left
-        return 0xA
-    else if hit_right
-        return 0xB
-
-    ; else let default hit-testing be done
-}
-
-VivaldiAccInit() {
-    static vTabs := 0
-    If !vTabs {
-        vTabs := JEE_AccGetTextAll(WinExist("ahk_exe vivaldi.exe"), "Menu", "push button")
-        vTabs := RegExReplace(vTabs, ".{3}$", "2.1.1.1")
-    }
-    return vTabs
-}
-
-; Needs improvement, can currently only get tab names for stacked tab groups if they're visible/expanded
-VivaldiGetTabNames(hwnd) {
-    vTabs := VivaldiAccInit()
-    oAcc := Acc_Get("Object", vTabs, 0, "ahk_id" hwnd)
-    oChildren := Acc_Children(oAcc)
-		for _, oChild in oChildren
-		{
-			if ( name := oChild.accName(1) )
-			{
-				vNum++ 
-        Try
-			  if ( oChild.accRole(2) = 20 ) {   
-          oStepchildren := Acc_Children(Acc_Children(oChild)[2])
-          for vNum2, oStepchild in oStepchildren {
-            name2 := oStepchild.accName(0)
-            if (name = name2)
-              Continue
-            str2 .= RepStr(A_Space,3) . Chr(0x25AA) " " name2 . "¥" . vNum . "¥" . 2 . "¥" vNum2 "`n"
-          }
-          name := Chr(0x25CF) " " name
-        }
-    	  str .= name "¥" vNum "¥" 1 "`n" . (str2 ? str2 : ""), str2 := ""
-			}
-		}
-    return str
+  }
+return returnObj
 }
 
 RepStr( Str, Count ) { ; By SKAN / CD: 01-July-2017 | goo.gl/U84K7J
 Return StrReplace( Format( "{:0" Count "}", "" ), 0, Str )
 }
 
-/* 
-[class] imagebutton
-4.1.2.1.1.1.1.1.1.2.1.1.1.1.1
-4.1.2.1.1.1.1.1.1.2.1.1.1.1.2.1
-4.1.2.1.1.1.1.1.1.2.1.1.1.1.2.2
- */
-
-VivaldiFocusTabByNum(hWnd:="", vNum:="", row := "", vNum2 := "") {
-	local
-	if !vNum
-		return
-        
-    path := VivaldiAccInit()
-	if (hWnd = "")
-		hWnd := WinExist("A")
-    tabRow := Acc_Get("Object", path, 0, "ahk_id" hwnd)
-    oChild := Acc_Children(tabRow)[vNum]
-  if (row = 1) {
-    oChild.accDoDefaultAction(0)
-  } else if (row = 2) {
-    oChild := Acc_Children(oChild)[row]
-    oChild := Acc_Children(oChild)
-    oChild[vNum2].accDoDefaultAction(0)
-  } else {
-    vNum := ""
+GetAccPath(Acc, byref hwnd="") {
+  hwnd := Acc_WindowFromObject(Acc)
+  WinObj := Acc_ObjectFromWindow(hwnd)
+  WinObjPos := Acc_Location(WinObj).pos
+  while Acc_WindowFromObject(Parent:=Acc_Parent(Acc)) = hwnd {
+    t2 := GetEnumIndex(Acc) "." t2
+    if Acc_Location(Parent).pos = WinObjPos
+      return {AccObj:Parent, Path:SubStr(t2,1,-1)}
+    Acc := Parent
   }
-  clipboard := ";name:" name "`n;" path "." vNum "." row . (vNum2 ? "." vNum2 : "")
-	return vNum
+  while Acc_WindowFromObject(Parent:=Acc_Parent(WinObj)) = hwnd
+    t1.="P.", WinObj:=Parent
+return {AccObj:Acc, Path:t1 SubStr(t2,1,-1)}
 }
 
+GetEnumIndex(Acc, ChildId := 0) {
+  if !ChildId {
+    ChildPos := Acc_Location(Acc).pos
+    try children := Acc_Children(Acc_Parent(Acc))
+    For Each, child in children {
+      if (IsObject(child) && Acc_Location(child).pos = ChildPos)
+        return A_Index
+    }
+  } else {
+    ChildPos := Acc_Location(Acc,ChildId).pos
+    try children := Acc_Children(Acc)
+    For Each, child in children {
+      if !(IsObject(child) && Acc_Location(Acc,child).pos = ChildPos)
+        return A_Index
+    }
+  }
+}
 
+VivaldiFocusTab(hwnd,tabName,path) {
+  SetMouseDelay, -1
+  SetDefaultMouseSpeed, 0
+  If !WinActive("ahk_id" hwnd) {
+    WinActivate, % "ahk_id" hwnd
+    WinWaitActive, % "ahk_id" hwnd, , 1
+    sleep 10
+  }
+  for _, p in StrSplit(Acc_Get("location",path,0,"ahk_id" hwnd),A_Space)
+    var := SubStr(p,1,1), value := SubStr(p,2), %var% := value
+  CoordMode, Mouse, Screen
+  if (x) {
+    MouseGetPos, x2, y2
+    Click, % (x +3) . A_Space . (y +3)
+    Click, % x2 A_Space y2 A_Space "0"
+  }
+}
 
 ;https://autohotkey.com/boards/viewtopic.php?f=6&t=40615
 
 JEE_ChromeAccInit(vValue)
 {
-    static vTabs := 0
-    chrome := WinExist("ahk_exe chrome.exe")
-    if !vTabs
-        vTabs := JEE_AccGetTextAll(chrome,,"page tab list") . ".1"
-	if (vValue = "U1")
-		return "4.1.2.1.2.5.2" ;address bar
-	if (vValue = "U2")
-		return "4.1.2.2.2.5.2" ;address bar
-	if (vValue = "T")
-		return vTabs ? vTabs : 0 ;"4.1.2.1.1.1" ;tabs (append '.1' to get the first tab)
+  static vTabs
+
+  ; chrome := WinExist("ahk_exe chrome.exe")
+  if (!vTabs && A_ThisLabel)
+    vTabs := AccMatchTextAll(WinExist("ahk_exe chrome.exe"),{"roletext":"page tab list"},"path",,1,20) . ".1"
+  if (vValue = "U1")
+    return "4.1.2.1.2.5.2" ;address bar
+  if (vValue = "U2")
+    return "4.1.2.2.2.5.2" ;address bar
+  if (vValue = "T")
+    return vTabs ? vTabs : 0 ;"4.1.2.1.1.1" ;tabs (append '.1' to get the first tab)
 }
 
 JEE_ChromeGetTabNames(hWnd:="", vSep:="`n")
 {
-	local
-	static vAccPath
-    if !vAccPath
-        vAccPath := JEE_ChromeAccInit("T")
-	if (hWnd = "")
-		hWnd := WinExist("A")
-	oAcc := Acc_Get("Object", vAccPath, 0, "ahk_id " hWnd)
+  local
+  static vAccPath
+  if !vAccPath
+    vAccPath := JEE_ChromeAccInit("T")
+  if (hWnd = "")
+    hWnd := WinExist("A")
+  oAcc := Acc_Get("Object", vAccPath, 0, "ahk_id" hWnd)
 
-	vHasSep := !(vSep = "")
-	if vHasSep
-		vOutput := ""
-	else
-		oOutput := []
-	for _, oChild in Acc_Children(oAcc)
-	{
-		;ROLE_SYSTEM_PUSHBUTTON := 0x2B
-		if (oChild.accRole(0) = 0x2B)
-			continue
-		try vTabText := oChild.accName(0)
-		catch
-			vTabText := ""
-		if vHasSep
-			vOutput .= vTabText vSep
-		else
-			oOutput.Push(vTabText)
-	}
-	oAcc := oChild := ""
-	return vHasSep ? SubStr(vOutput, 1, -StrLen(vSep)) : oOutput
+  vHasSep := !(vSep = "")
+  if vHasSep
+    vOutput := ""
+  else
+    oOutput := []
+  for _, oChild in Acc_Children(oAcc)
+  {
+    ;ROLE_SYSTEM_PUSHBUTTON := 0x2B
+    if (oChild.accRole(0) = 0x2B)
+      continue
+    try vTabText := oChild.accName(0)
+    catch
+      vTabText := ""
+    if vHasSep
+      vOutput .= vTabText vSep
+    else
+      oOutput.Push(vTabText)
+  }
+  oAcc := oChild := ""
+return vHasSep ? SubStr(vOutput, 1, -StrLen(vSep)) : oOutput
 }
 
 ;==================================================
 
 JEE_ChromeFocusTabByNum(hWnd:="", vNum:="")
 {
-	local
-	static vAccPath
-    if !vAccPath
-        vAccPath := JEE_ChromeAccInit("T")    
-	; static vAccPath := JEE_ChromeAccInit("T")
-	if (hWnd = "")
-		hWnd := WinExist("A")
-	if !vNum
-		return
-	oAcc := Acc_Get("Object", vAccPath, 0, "ahk_id " hWnd)
-	if !Acc_Children(oAcc)[vNum]
-		vNum := ""
-	else
-		Acc_Children(oAcc)[vNum].accDoDefaultAction(0)
-	oAcc := ""
-	return vNum
+  local
+  static vAccPath
+  if !vAccPath
+    vAccPath := JEE_ChromeAccInit("T") 
+  ; static vAccPath := JEE_ChromeAccInit("T")
+  if (hWnd = "")
+    hWnd := WinExist("A")
+  if !vNum
+    return
+  oAcc := Acc_Get("Object", vAccPath, 0, "ahk_id " hWnd)
+  if !Acc_Children(oAcc)[vNum]
+    vNum := ""
+  else
+    Acc_Children(oAcc)[vNum].accDoDefaultAction(0)
+  oAcc := ""
+return vNum
 }
 
 ;==================================================
 
 JEE_ChromeFocusTabByName(hWnd:="", vTitle:="", vNum:="")
 {
-	local
-	static vAccPath := JEE_ChromeAccInit("T")
-	if (hWnd = "")
-		hWnd := WinExist("A")
-	if (vNum = "")
-		vNum := 1
-	oAcc := Acc_Get("Object", vAccPath, 0, "ahk_id " hWnd)
-	vCount := 0, vRet := 0
-	for _, oChild in Acc_Children(oAcc)
-	{
-		vTabText := oChild.accName(0)
-		if (vTabText = vTitle)
-			vCount++
-		if (vCount = vNum)
-		{
-			oChild.accDoDefaultAction(0), vRet := A_Index
-			break
-		}
-	}
-	oAcc := oChild := ""
-	return vRet
+  local
+  static vAccPath := JEE_ChromeAccInit("T")
+  if (hWnd = "")
+    hWnd := WinExist("A")
+  if (vNum = "")
+    vNum := 1
+  oAcc := Acc_Get("Object", vAccPath, 0, "ahk_id " hWnd)
+  vCount := 0, vRet := 0
+  for _, oChild in Acc_Children(oAcc)
+  {
+    vTabText := oChild.accName(0)
+    if (vTabText = vTitle)
+      vCount++
+    if (vCount = vNum)
+    {
+      oChild.accDoDefaultAction(0), vRet := A_Index
+      break
+    }
+  }
+  oAcc := oChild := ""
+return vRet
 }
-
 
 JEE_FirefoxGetTabNames(hWnd:="", vSep:="`n")
 {
-	local
-	if (hWnd = "")
-		hWnd := WinExist("A")
-	oAcc := Acc_Get("Object", "4", 0, "ahk_id " hWnd)
-	vRet := 0
-	for _, oChild in Acc_Children(oAcc)
-	{
-		if (oChild.accName(0) == "Browser tabs")
-		{
-			oAcc := Acc_Children(oChild).1, vRet := 1
-			break
-		}
-	}
-	if !vRet
-	{
-		oAcc := oChild := ""
-		return
-	}
+  local
+  if (hWnd = "")
+    hWnd := WinExist("A")
+  oAcc := Acc_Get("Object", "4", 0, "ahk_id " hWnd)
+  vRet := 0
+  for _, oChild in Acc_Children(oAcc)
+  {
+    if (oChild.accName(0) == "Browser tabs")
+    {
+      oAcc := Acc_Children(oChild).1, vRet := 1
+      break
+    }
+  }
+  if !vRet
+  {
+    oAcc := oChild := ""
+    return
+  }
 
-	vHasSep := !(vSep = "")
-	if vHasSep
-		vOutput := ""
-	else
-		oOutput := []
-	for _, oChild in Acc_Children(oAcc)
-	{
-		;ROLE_SYSTEM_PUSHBUTTON := 0x2B
-		if (oChild.accRole(0) = 0x2B)
-			continue
-		try vTabText := oChild.accName(0)
-		catch
-			vTabText := ""
-		if vHasSep
-			vOutput .= vTabText vSep
-		else
-			oOutput.Push(vTabText)
-	}
-	oAcc := oChild := ""
-	return vHasSep ? SubStr(vOutput, 1, -StrLen(vSep)) : oOutput
+  vHasSep := !(vSep = "")
+  if vHasSep
+    vOutput := ""
+  else
+    oOutput := []
+  for _, oChild in Acc_Children(oAcc)
+  {
+    ;ROLE_SYSTEM_PUSHBUTTON := 0x2B
+    if (oChild.accRole(0) = 0x2B)
+      continue
+    try vTabText := oChild.accName(0)
+    catch
+      vTabText := ""
+    if vHasSep
+      vOutput .= vTabText vSep
+    else
+      oOutput.Push(vTabText)
+  }
+  oAcc := oChild := ""
+return vHasSep ? SubStr(vOutput, 1, -StrLen(vSep)) : oOutput
 }
 
 ;==================================================
 
 JEE_FirefoxFocusTabByNum(hWnd:="", vNum:="")
 {
-	local
-	if (hWnd = "")
-		hWnd := WinExist("A")
-	if !vNum
-		return
-	oAcc := Acc_Get("Object", "4", 0, "ahk_id " hWnd)
-	vRet := 0
-	for _, oChild in Acc_Children(oAcc)
-	{
-		if (oChild.accName(0) == "Browser tabs")
-		{
-			oAcc := Acc_Children(oChild).1, vRet := 1
-			break
-		}
-	}
-	if !vRet || !Acc_Children(oAcc)[vNum]
-		vNum := ""
-	else
-		Acc_Children(oAcc)[vNum].accDoDefaultAction(0)
-	oAcc := oChild := ""
-	return vNum
+  local
+  if (hWnd = "")
+    hWnd := WinExist("A")
+  if !vNum
+    return
+  oAcc := Acc_Get("Object", "4", 0, "ahk_id " hWnd)
+  vRet := 0
+  for _, oChild in Acc_Children(oAcc)
+  {
+    if (oChild.accName(0) == "Browser tabs")
+    {
+      oAcc := Acc_Children(oChild).1, vRet := 1
+      break
+    }
+  }
+  if !vRet || !Acc_Children(oAcc)[vNum]
+    vNum := ""
+  else
+    Acc_Children(oAcc)[vNum].accDoDefaultAction(0)
+  oAcc := oChild := ""
+return vNum
 }
 
 ;==================================================
 
 JEE_FirefoxFocusTabByName(hWnd:="", vTitle:="", vNum:="")
 {
-	local
-	if (hWnd = "")
-		hWnd := WinExist("A")
-	if (vNum = "")
-		vNum := 1
-	oAcc := Acc_Get("Object", "4", 0, "ahk_id " hWnd)
-	vRet := 0
-	for _, oChild in Acc_Children(oAcc)
-	{
-		if (oChild.accName(0) == "Browser tabs")
-		{
-			oAcc := Acc_Children(oChild).1, vRet := 1
-			break
-		}
-	}
-	if !vRet
-	{
-		oAcc := oChild := ""
-		return
-	}
+  local
+  if (hWnd = "")
+    hWnd := WinExist("A")
+  if (vNum = "")
+    vNum := 1
+  oAcc := Acc_Get("Object", "4", 0, "ahk_id " hWnd)
+  vRet := 0
+  for _, oChild in Acc_Children(oAcc)
+  {
+    if (oChild.accName(0) == "Browser tabs")
+    {
+      oAcc := Acc_Children(oChild).1, vRet := 1
+      break
+    }
+  }
+  if !vRet
+  {
+    oAcc := oChild := ""
+    return
+  }
 
-	vCount := 0, vRet := 0
-	for _, oChild in Acc_Children(oAcc)
-	{
-		vTabText := oChild.accName(0)
-		if (vTabText = vTitle)
-			vCount++
-		if (vCount = vNum)
-		{
-			oChild.accDoDefaultAction(0), vRet := A_Index
-			break
-		}
-	}
-	oAcc := oChild := ""
-	return vRet
+  vCount := 0, vRet := 0
+  for _, oChild in Acc_Children(oAcc)
+  {
+    vTabText := oChild.accName(0)
+    if (vTabText = vTitle)
+      vCount++
+    if (vCount = vNum)
+    {
+      oChild.accDoDefaultAction(0), vRet := A_Index
+      break
+    }
+  }
+  oAcc := oChild := ""
+return vRet
 }
 
 ;==================================================
 
-TCMatch(aHaystack, aNeedle)
-{
+TCMatch(aHaystack, aNeedle) {
   global DefaultTCSearch
-
-  if (SubStr(aNeedle, 1, 1) != "?" && DefaultTCSearch != "?" )  {
+  static tcMatch := DllCall("GetProcAddress", "Ptr", DllCall("LoadLibrary", "WStr", "lib\TCMatch" . (A_PtrSize == 8 ? "64" : ""), "Ptr"), "AStr", "MatchFileW","Ptr")
+  if (SubStr(aNeedle, 1, 1) != "?" && DefaultTCSearch != "?" ) {
     for i, e in StrSplit("/\[^$.|?*+(){}")
       aHaystack := StrReplace(aHaystack, e, A_Space)
   }
   If ( aNeedle ~= "^[^\?<*]" && DefaultTCSearch )
     aNeedle := DefaultTCSearch . aNeedle
-  OutputDebug, % aNeedle "`n"
-  if (A_PtrSize == 8)
-  {
-    return DllCall("lib\TCMatch64\MatchFileW", "WStr", aNeedle, "WStr", aHaystack)
-  }
-  return DllCall("lib\TCMatch\MatchFileW", "WStr", aNeedle, "WStr", aHaystack)
+return DllCall(tcMatch, "WStr", aNeedle, "WStr", aHaystack)
 }
 
-;Modified from original to allow searching for and returning a match for role, name and value, whichever are entered.
-JEE_AccGetTextAll(hWnd:=0, nameMatch := "", roleMatch := "", valMatch := "", vSep:="`n", vIndent:="`t", vOpt:="")
+FadeShow() {
+  DllCall("AnimateWindow",UInt,switcher_id,UInt,75,UInt,0xa0000)
+}
+
+FadeHide() {
+  DllCall("AnimateWindow",UInt,switcher_id,UInt,75,UInt,0x90000)
+}
+
+AccMatchTextAll(nWindow, matchList, get := "path", regex := 0, reload := 0, depthLimit := 0, ByRef Obj := "") {
+  static
+  start := A_TickCount
+  if !IsObject(foundPaths)
+    foundPaths := Object()
+  , matchStr := ""
+  , idx := 0
+  ; nWindow := WinExist(title)
+  ; getObj := (get ~= "^(object|obj|o|all)$")
+  if (!IsObject(%nWindow%) || reload = 1)
+    %nWindow% := JEE_AccGetTextAll(nWindow, , ,"gpath o" . (depthLimit > 0 ? " l" depthLimit : "") )
+  count := matchList.Count()
+  obj := %nWindow%
+  for k, v in matchList {
+    if !v {
+      count--
+      continue
+    }
+    idx++
+    matchStr .= k . ":" . StrReplace(v,A_Space) ","
+  }
+  matchStr := RTrim(matchStr,",")
+  if (!IsObject(foundPaths[nWindow]) || reload = 1)
+    foundPaths[nWindow] := Object()
+  else if foundPaths[nWindow].HasKey(matchStr) {
+    return getObj ? foundPaths[nWindow,matchStr] : foundPaths[nWindow,matchStr,get]
+  }
+  for i, e in %nWindow% {
+    found := 0
+    for k, v in e {
+      if (v != "" && matchlist[k] != "" && (getObj || e[get] != "" ))
+        if ((regex = 0 && InStr(v,matchlist[k]))
+        || (regex = 1 && RegExMatch(v, matchList[k])))
+      found++
+    }
+    if (found = count) {
+      foundPaths[nWindow,matchStr] := e
+      e.time := A_TickCount - start
+      return getObj ? e : e[get]
+    }
+  }
+return
+}
+
+JEE_AccGetTextAll(hWnd:=0, vSep:="`n", vIndent:="`t", vOpt:="")
 {
-	vLimN := 20, vLimV := 20
-	Loop, Parse, vOpt, % " "
-	{
-		vTemp := A_LoopField
-		if (SubStr(vTemp, 1, 1) = "n")
-			vLimN := SubStr(vTemp, 2)
-		else if (SubStr(vTemp, 1, 1) = "v")
-			vLimV := SubStr(vTemp, 2)
-	}
-    matchList := Object()
-    if (nameMatch != "")
-        matchList.vName := nameMatch
-    if (roleMatch != "")
-        matchList.vRoleText := roleMatch
-    if (valMatch != "")
-        matchList.vValue  := valMatch
-    
+  vLimN := 20, vLimV := 20, retObj := 0, vLimL := 0, oOutput := []
+  Loop, Parse, vOpt, % " "
+  {
+    vTemp := A_LoopField
+    if (SubStr(vTemp, 1, 1) = "n")
+      vLimN := SubStr(vTemp, 2)
+    else if (SubStr(vTemp, 1, 1) = "v")
+      vLimV := SubStr(vTemp, 2)
+    else if (SubStr(vTemp, 1, 1) = "o")
+      retObj := 1
+    else if (SubStr(vTemp, 1, 1) = "l")
+      vLimL := SubStr(vTemp, 2)
+  }
 
-	oMem := {}, oPos := {}
-	;OBJID_WINDOW := 0x0
-	oMem[1, 1] := Acc_ObjectFromWindow(hWnd, 0x0)
-	oPos[1] := 1, vLevel := 1
-	VarSetCapacity(vOutput, 1000000*2)
+  oMem := {}, oPos := {}
+  ;OBJID_WINDOW := 0x0
+  oMem[1, 1] := Acc_ObjectFromWindow(hWnd, 0x0)
+  oPos[1] := 1, vLevel := 1
+  VarSetCapacity(vOutput, 1000000*2)
 
-	Loop
-	{
-		if !vLevel
-			break
-		if !oMem[vLevel].HasKey(oPos[vLevel])
-		{
-			oMem.Delete(vLevel)
-			oPos.Delete(vLevel)
-			vLevelLast := vLevel, vLevel -= 1
-			oPos[vLevel]++
-			continue
-		}
-		oKey := oMem[vLevel, oPos[vLevel]]
+  Loop
+  {
+    if !vLevel
+      break
+    if (!oMem[vLevel].HasKey(oPos[vLevel]) || (vLimL > 0 && vLevel > vLimL))
+    {
+      oMem.Delete(vLevel)
+      oPos.Delete(vLevel)
+      vLevelLast := vLevel, vLevel -= 1
+      oPos[vLevel]++
+      continue
+    }
+    oKey := oMem[vLevel, oPos[vLevel]]
 
-		vName := "", vValue := ""
-		if IsObject(oKey)
-		{
-			vRoleText := Acc_GetRoleText(oKey.accRole(0))
-			try vName := oKey.accName(0)
-			try vValue := oKey.accValue(0)
-		}
-		else
-		{
-			oParent := oMem[vLevel-1,oPos[vLevel-1]]
-			vChildId := IsObject(oKey) ? 0 : oPos[vLevel]
-			vRoleText := Acc_GetRoleText(oParent.accRole(vChildID))
-			try vName := oParent.accName(vChildID)
-			try vValue := oParent.accValue(vChildID)
-		}
-		if (StrLen(vName) > vLimN)
-			vName := SubStr(vName, 1, vLimN) "..."
-		if (StrLen(vValue) > vLimV)
-			vValue := SubStr(vValue, 1, vLimV) "..."
-		vName := RegExReplace(vName, "[`r`n]", " ")
-		vValue := RegExReplace(vValue, "[`r`n]", " ")
+    vName := "", vValue := ""
+    if IsObject(oKey)
+    {
+      try vRole := oKey.accRole(0)
+      try vRoleText := Acc_GetRoleText(vRole)
+      ; vState := Acc_State(oKey)
+      ; vState := Acc_GetStateTextEx2(oKey.accState(0))
+      try vName := oKey.accName(0)
+      try vValue := oKey.accValue(0)
+    }
+    else
+    {
+      oParent := oMem[vLevel-1,oPos[vLevel-1]]
+      vChildId := IsObject(oKey) ? 0 : oPos[vLevel]
+      try vRole := oParent.accRole(vChildID)
+      try vRoleText := Acc_GetRoleText(vRole)
+      ; vState := Acc_State(oParent)
+      ; vState := Acc_GetStateTextEx2(oParent.accState(0))
+      try vName := oParent.accName(vChildID)
+      try vValue := oParent.accValue(vChildID)
+    }
 
-		vAccPath := ""
-		if IsObject(oKey)
-		{
-			Loop, % oPos.Length() - 1
-				vAccPath .= (A_Index=1?"":".") oPos[A_Index+1]
-		}
-		else
-		{
-			Loop, % oPos.Length() - 2
-				vAccPath .= (A_Index=1?"":".") oPos[A_Index+1]
-			vAccPath .= " c" oPos[oPos.Length()]
-		}
-		vOutput .= vAccPath "`t" JEE_StrRept(vIndent, vLevel-1) vRoleText " [" vName "][" vValue "]" vSep
+    vAccPath := ""
+    if IsObject(oKey)
+    {
+      Loop, % oPos.Length() - 1
+        vAccPath .= (A_Index=1?"":".") oPos[A_Index+1]
+    }
+    else
+    {
+      Loop, % oPos.Length() - 2
+        vAccPath .= (A_Index=1?"":".") oPos[A_Index+1]
+      vAccPath .= " c" oPos[oPos.Length()]
+    }
 
-        found := 0
-        If (matchList.Count() >= 1) {
-            for k, v in matchList
-                if InStr(%k%,v)
-                    found++
-            if (found = matchList.Count())
-                return vAccPath
-        }
+    if retObj {
+      oOutput.Push({path:vAccPath,name:vName,value:vValue,roletext:vRoleText,role:vRole,state:vState,depth:vLevel})
+    } else {
+      if (StrLen(vName) > vLimN)
+        vName := SubStr(vName, 1, vLimN) "..."
+      if (StrLen(vValue) > vLimV)
+        vValue := SubStr(vValue, 1, vLimV) "..."
+      vName := RegExReplace(vName, "[`r`n]", " ")
+      vValue := RegExReplace(vValue, "[`r`n]", " ")
+      vOutput .= vAccPath "`t" JEE_StrRept(vIndent, vLevel-1) vRoleText " [" vName "][" vValue "]" vSep
+    }
 
-		oChildren := Acc_Children(oKey)
-		if !oChildren.Length()
-			oPos[vLevel]++
-		else
-		{
-			vLevelLast := vLevel, vLevel += 1
-			oMem[vLevel] := oChildren
-			oPos[vLevel] := 1
-		}
-	}
-	return matchList.Count() >= 1 ? 0 : SubStr(vOutput, 1, -StrLen(vSep))
+    Try oChildren := Acc_Children(oKey)
+    if !oChildren.Length()
+      oPos[vLevel]++
+    else
+    {
+      vLevelLast := vLevel, vLevel += 1
+      oMem[vLevel] := oChildren
+      oPos[vLevel] := 1
+    }
+  }
+
+return retObj = 1 ? oOutput : SubStr(vOutput, 1, -StrLen(vSep))
 }
 
 JEE_StrRept(vText, vNum)
 {
-	if (vNum <= 0)
-		return
-	return StrReplace(Format("{:" vNum "}", ""), " ", vText)
-	;return StrReplace(Format("{:0" vNum "}", 0), 0, vText)
+  if (vNum <= 0)
+    return
+return StrReplace(Format("{:" vNum "}", ""), " ", vText)
+}
+
+~LButton Up::
+  critical
+  If isResizing {
+    Resize()
+    SetTimer, % SaveTimer, -500 
+    ; Tooltip
+    isResizing := 0
+    DllCall("ReleaseCapture")
+  }
+return
+
+WM_LBUTTONDOWN() {
+
+  global isResizing, resizeBorder, Windows
+  static topBorder := 29
+
+  if !A_Gui
+    return
+
+  ; Capture mouse if cursor is over the resize area
+  If (!isResizing && resizeBorder) {
+    isResizing := 1
+    DllCall("SetCapture", "UInt", switcher_id)
+    return
+  }
+
+  MouseGetPos, , mouseY,, ctrl
+  If ( A_Gui && mouseY < topBorder )
+    PostMessage, 0xA1, 2 ; 0xA1 = WM_NCLBUTTONDOWN
+  ; If (ctrl = "SysListView321")
+  ;   ControlFocus, % ctrl, % "ahk_id" switcher_id
+
+}
+
+WM_SETCURSOR() {
+
+  global resizeBorder
+  static borderSize := 6
+  , cornerMargin := 12
+  , IDC_SIZENS := 32645
+  , IDC_SIZEWE := 32644
+  , IDC_SIZENWSE := 32642
+  , IDC_SIZENESW := 32643
+  , IDC_HAND := 32649
+  , SPI_SETCURSORS := 0x57
+  , borderOffset := 0
+  , LastCursor, CursorHandle
+
+  if !A_Gui
+    return
+
+  WinGetPos, winX, winY, winWidth, winHeight, % "ahk_id" switcher_id
+  borderW := winX + borderOffset
+  , borderN := winY + borderOffset
+  , borderE := winX + winWidth - borderOffset
+  , borderS := winY + winHeight - borderOffset
+
+  CoordMode, Mouse, Screen
+  MouseGetPos, mouseX, mouseY, varWin, varControl
+  GuiControlGet, ctrlText,, % varControl
+  GuiControlGet, ctrlName, Name, % varControl
+
+  Switch
+  {
+    Case (InRange(mouseX, borderW, cornerMargin ) && InRange(mouseY, borderN, cornerMargin )) : corner := "NW"
+    Case (InRange(mouseX, borderE - cornerMargin, cornerMargin ) && InRange(mouseY, borderN, cornerMargin )) : corner := "NE"
+    Case (InRange(mouseX, borderW, cornerMargin ) && InRange(mouseY, borderS - cornerMargin, cornerMargin )) : corner := "SW"
+    Case (InRange(mouseX, borderE - cornerMargin, cornerMargin ) && InRange(mouseY, borderS - cornerMargin, cornerMargin )) : corner := "SE"
+    default: corner := ""
+  }
+
+  Switch
+  {
+    Case InRange(mouseY, borderN, borderSize) : resizeBorder := "N"
+    Case InRange(mouseY, borderS - borderSize, borderSize) : resizeBorder := "S"
+    Case InRange(mouseX, borderE - borderSize, borderSize) : resizeBorder := "E"
+    Case InRange(mouseX, borderW, borderSize) : resizeBorder := "W"
+    default: resizeBorder := ""
+  }
+
+  resizeBorder := corner ? corner : resizeBorder
+
+  Switch resizeBorder {
+    Case "N", "S" : cursor := IDC_SIZENS
+    Case "W", "E" : cursor := IDC_SIZEWE
+    Case "SE", "NW" : cursor := IDC_SIZENWSE
+    Case "SW", "NE" : cursor := IDC_SIZENESW
+    default: cursor := ""
+  }
+
+  If (cursor) {
+    CursorHandle := DllCall("LoadCursor", "ptr", 0, "ptr", Cursor, "ptr")
+    LastCursor := DllCall("SetCursor", "uint", CursorHandle)
+    Return true
+  } ;else return
+
+}
+
+InRange(val, start, count) {
+  return val >= start && val <= start + count
+}
+
+WM_MOUSEMOVE() {
+
+  global resizeBorder, isResizing, borderOffset
+  static minWidth := 200
+  , minHeight := 150
+
+  if !A_Gui
+    return
+  ListLines, On
+  WinGetPos, winX, winY, winWidth, winHeight, % "ahk_id" switcher_id
+  CoordMode, Mouse, Screen
+  MouseGetPos, mouseX, mouseY
+
+  If isResizing {
+
+    winSYPos := winY + winHeight
+    winEXPos := winX + winWidth
+
+    If InStr(resizeBorder, "W") {
+      newWidth := winEXPos - mouseX
+      If (newWidth > minWidth && mouseX > 0)
+        winX := mouseX
+      Else
+        newWidth := winWidth
+    } Else If InStr(resizeBorder, "E") {
+      newWidth := mouseX - winX
+      newWidth := newWidth > minWidth ? newWidth : winWidth 
+    } Else {
+      newWidth := winWidth
+    }
+
+    If InStr(resizeBorder, "N") {
+      newHeight := winSYPos - mouseY
+      If (newHeight > minHeight && mouseY > 0)
+        winY := mouseY
+      else
+        newHeight := winHeight
+    } Else If InStr(resizeBorder, "S") {
+      newHeight := mouseY - winY
+      newHeight := newHeight > minHeight ? newHeight : winH
+    } Else {
+      newHeight := winHeight
+    }
+    if (newWidth <= 220 || newHeight <= 127)
+      return  
+    SetWindowPosition(switcher_id,winX,winY,newWidth,newHeight)
+    Resize(newWidth,newHeight)
+  }
+}
+
+Resize(width := "", height := "") {
+  critical
+  global hLV
+  if (LV_VisibleRows().2 = LV_GetCount())
+    LV_ScrollDown()
+    ; sendmessage, 0x115, 0, 0,, ahk_id %hlv%  
+  if (!width || !height)
+    WinGetPos,,, width, height, % "ahk_id" switcher_id
+  WinSet, Region , 0-0 w%width% h%height% R15-15, ahk_id %switcher_id%
+  GuiControl, Move, list, % "w" (hideScrollBars ? width + 20 : width - 20) " h" height - 50
+  GuiControl, Move, search, % "w" width - 52
+  LV_ModifyCol(3
+    , width - ( hideScrollBars
+      ? (compact ? 170 : 190) ; Resizes column 3 to match gui width
+    : (compact ? 200 : 220)))
+  }
+
+  SetWindowPosition(hwnd, x := "", y := "", w := "", h := "") {
+    global hLV
+    DllCall("SetWindowPos","uint",hwnd,"uint",0
+      ,"int",x,"int",y,"int",w,"int",h
+    ,"uint",0x40)
+  }
+
+GetProcessName(wid) {
+  WinGet, name, ProcessName, ahk_id %wid%
+  return StrSplit(name, ".").1
 }
