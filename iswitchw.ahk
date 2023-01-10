@@ -173,7 +173,10 @@ return
 ; Win+space to activate.
 ;
 ; #space::  
-CapsLock:: ; Use Shift+Capslock to toggle while in use by the hotkey
+; #If !WinActive("ahk_exe %switcher_id%")
+; capslock:: ; Use Shift+Capslock to toggle while in use by the hotkey
+`;:: ; Use Shift+Capslock to toggle while in use by the hotkey
+  prev:=WinActive("A")
   LV_Modify(LV_GetNext(),"-Select -Focus")
   allwindowobj := GetAllWindows()
   If WinActive("ahk_class Windows.UI.Core.CoreWindow") ; clear the search/start menu if it's open, otherwise it keeps stealing focus
@@ -214,11 +217,19 @@ PgDn::        ; Jump down 4 rows
 ^Home::       ; Jump to top
 ^End::        ; Jump to bottom
 !F4::         ; Quit
+$;::
 ~Delete::
 ~Backspace::
   SetKeyDelay, -1
   Switch A_ThisHotkey {
-    Case "Enter": ActivateWindow()
+    Case ";": 
+        If (search == "") {
+            if prev
+                WinActivate, ahk_id %prev%
+                SendInput {;}
+        } Else {
+            ActivateWindow()
+        }
     Case "Escape": FadeHide() ;WinHide, ahk_id %switcher_id%
     Case "^Home": LV_ScrollTop()
     Case "^End": LV_ScrollBottom()
