@@ -57,9 +57,9 @@ filters := []
 ; Add folders containing files or shortcuts you'd like to show in the list.
 ; Enter new paths as an array
 ; todo: show file extensions/path in the list, etc.
-; shortcutFolders := []
-shortcutFolders := ["C:\Users\" A_UserName "\OneDrive\Desktop"
-,"C:\Users\" A_UserName "\OneDrive\Documents"]
+shortcutFolders := []
+; shortcutFolders := ["C:\Users\" A_UserName "\OneDrive\Desktop"
+; ,"C:\Users\" A_UserName "\OneDrive\Documents"]
 
 ; Set this to true to update the list of windows every time the search is
 ; updated. This is usually not necessary and creates additional overhead, so
@@ -208,15 +208,19 @@ Escape::      ; Close window
 ^h::          ; Backspace
 Down::        ; Next row
 Tab::         ; ''
-^k::          ; ''
+^p::          ; ''
+!j::          ; ''
 Up::          ; Previous row
 +Tab::        ; ''
-^j::          ; ''
+^n::          ; ''
++j::          ; ''
++k::          ; ''
 PgUp::        ; Jump up 4 rows
 PgDn::        ; Jump down 4 rows
 ^Home::       ; Jump to top
 ^End::        ; Jump to bottom
 !F4::         ; Quit
+Space::
 $;::
 ~Delete::
 ~Backspace::
@@ -230,6 +234,8 @@ $;::
         } Else {
             ActivateWindow()
         }
+    Case "Space": ActivateWindow()
+    Case "Enter": ActivateWindow()
     Case "Escape": FadeHide() ;WinHide, ahk_id %switcher_id%
     Case "^Home": LV_ScrollTop()
     Case "^End": LV_ScrollBottom()
@@ -242,13 +248,13 @@ $;::
     GuiControl, , Edit1,
     Else If (A_ThisHotkey = "^Backspace" || A_ThisHotkey = "^w")
       ControlSend, Edit1, ^+{left}{Backspace}, ahk_id %switcher_id%
-  Case "Tab", "+Tab", "Up", "Down", "PgUp", "PgDn", "^k", "^j":
+  Case "Tab", "+Tab", "Up", "Down", "PgUp", "PgDn", "^p", "^n", "+k", "+j":
     page := InStr(A_ThisHotkey,"Pg")
     row := LV_GetNext()
     jump := page ? 4 : 1
     If (row = 0)
       row := 1
-    row := GetKeyState("Shift") || InStr(A_ThisHotkey,"Up") || InStr(A_ThisHotkey,"^k") ? row - jump : row + jump
+    row := InStr(A_ThisHotkey,"+Tab") || InStr(A_ThisHotkey,"+k") || InStr(A_ThisHotkey,"Up") || InStr(A_ThisHotkey,"^p") ? row - jump : row + jump
     If (row > LV_GetCount())
       row := page ? LV_GetCount() : 1
     Else If (row < 1)
