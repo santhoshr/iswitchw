@@ -648,7 +648,10 @@ DrawListView(windows, startFrom := 0) {
     allRows.RemoveAt(rowNum)
   }
 
-  LV_Modify(1, "Select Focus")
+  if % LV_GetCount() > 1
+    LV_Modify(2, "Select Focus")
+  else
+    LV_Modify(1, "Select Focus")
 
   LV_ModifyCol(1,compact ? 50 : 70)
   LV_ModifyCol(2,110)
