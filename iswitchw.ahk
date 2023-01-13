@@ -109,7 +109,7 @@ Menu, Context, Add, Options, MenuHandler
 Menu, Context, Add, Exit, MenuHandler
 
 ; Gui, +Hwndgui_id -Caption -MaximizeBox -Resize -DpiScale +E0x02000000 +E0x00080000 
-Gui, +LastFound +AlwaysOnTop -Caption -Resize -DPIScale +Hwndswitcher_id
+Gui, +LastFound +AlwaysOnTop +ToolWindow -Caption -Resize -DPIScale +Hwndswitcher_id
 Gui, Color, black, 191919
 WinSet, Transparent, 225
 Gui, Margin, 8, 10
@@ -118,10 +118,8 @@ Gui, Add, Text, xm+5 ym+3, % Chr(0xE721)
 Gui, Font, s10 cEEE8D5, Segoe UI
 Gui, Add, Edit, w420 h25 x+10 ym gSearchChange vsearch -E0x200,
 Gui, Add, ListView, % (hideScrollbars ? "x0" : "x9") " y+8 w490 h500 -VScroll -HScroll -Hdr -Multi Count10 AltSubmit vlist hwndhLV gListViewClick 0x2000 +LV0x10000 -E0x200", index|title|proc|tab
-Gui, Show, , Window Switcher
+Gui, Show, center, Window Switcher
 WinWaitActive, ahk_id %switcher_id%, , 1
-if gui_pos
-  SetWindowPosition(switcher_id, StrSplit(gui_pos, A_Space)*)
 LV_ModifyCol(4,0)
 Resize()
 WinHide, ahk_id %switcher_id%
